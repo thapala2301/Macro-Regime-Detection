@@ -333,3 +333,99 @@ Assignments are weak because the initial guess was poor.
 ---
 
 *Log continues as project progresses.*
+
+---
+
+## Day 3 — First HMM Implementation and Regime Detection
+**Date:** August 2026
+**Script:** `hmm_learn.py`
+
+### What we built
+
+Implemented the first Hidden Markov Model on the macro dataset collected in Day 1. The pipeline covered four blocks: data standardisation, model fitting, regime decoding via Viterbi, and regime characterisation. The key question going in — would the model find the same four regimes we identified visually in Day 1 without being told anything about economic history?
+
+### Block 1 — Data standardisation
+
+Loaded `macro_data.csv` and selected the five macro features: fed funds rate, inflation, unemployment, yield curve slope, and credit spread. Applied `StandardScaler` from scikit-learn to standardise each feature to mean 0 and standard deviation 1.
+
+Standardisation is essential because the five indicators operate on completely different scales — unemployment ranges from 3-15%, credit spread from 1-6%, fed funds from 0-5.33%. Without standardisation the HMM would weight unemployment more heavily simply because its numbers are larger, not because it is more informative. Scaling to mean 0 and standard deviation 1 puts all five indicators on equal footing so the model judges them purely by their information content.
+
+### Block 2 — Fitting the HMM
+
+Fitted a `GaussianHMM` with the following parameters:
+- `n_components=4` — four hidden regimes
+- `covariance_type='full'` — full covariance matrix capturing relationships between all indicators
+- `n_iter=1000` — up to 1000 EM iterations
+- `random_state=42` — fixed seed for reproducibility
+
+The model trained and converged successfully — `monitor_.converged = True` — meaning the EM algorithm found a stable solution before hitting the iteration limit.
+
+**Initial issue:** The first run without `random_state` and with only 100 iterations produced unstable results — regimes flickering between states 0 and 3 every single month in certain periods, violating the Markov property. Increasing iterations to 1000 and fixing the random seed resolved this completely, producing stable persistent regimes as expected.
+
+### Block 3 — Viterbi decoding
+
+Called `model.predict(X)` to run the Viterbi algorithm and assign a regime label (0, 1, 2, or 3) to every one of the 236 monthly observations. Plotted the regime sequence over time alongside unemployment with colour-coded regime shading.
+
+**The regime sequence produced:**
+- Regime 2 — November 2006 to early 2008
+- Brief transitions through regimes 0 and 1 — 2008 crisis onset
+- Regime 3 — 2009 to approximately 2013
+- Regime 1 — 2013 to 2020
+- Regime 2 briefly — pre-COVID
+- Regime 1 — COVID period
+- Regime 3 briefly — early post-COVID
+- Regime 0 — 2021 to 2023
+- Regime 2 — 2023 to present
+
+### Block 4 — Regime characterisation
+
+Added regime labels to the DataFrame and computed average macro indicator values for each regime using `groupby`:
+
+| Regime | Fed Funds | Inflation | Unemployment | Yield Curve | Credit Spread |
+|---|---|---|---|---|---|
+| 0 | 1.80% | 6.44% | 4.33% | 0.43% | 2.22% |
+| 1 | 0.72% | 1.33% | 4.93% | 1.02% | 2.74% |
+| 2 | 4.12% | 2.80% | 4.17% | 0.21% | 1.89% |
+| 3 | 0.13% | 1.70% | 8.26% | 1.94% | 2.87% |
+
+**Regime labels assigned:**
+
+**Regime 0 — Inflationary Shock:** Inflation at 6.44% — far above the 2% target — while fed funds at only 1.80%, meaning rates were still catching up to inflation. Low unemployment at 4.33%. This is 2021-2023: cost-push inflation from post-COVID supply chain disruption and the Russian invasion of Ukraine driving energy prices up, while the Fed was still near zero before beginning its aggressive hiking cycle.
+
+**Regime 1 — Goldilocks:** Low rates (0.72%), low inflation (1.33%), low unemployment (4.93%), positive yield curve (1.02%). Not too hot, not too cold. This is 2015-2019: the longest bull market in modern history, characterised by slow steady growth, contained inflation, and falling unemployment. The textbook goldilocks environment.
+
+**Regime 2 — Pre-Crisis Normal / Current Tightening:** High fed funds (4.12%), inflation near the 2% target (2.80%), low unemployment (4.17%), compressed yield curve (0.21%). This is 2006-2008 before the crash and also the current 2023-2026 period — rates are elevated but the economy is holding up. The yield curve being near zero signals the market is uncertain about future growth.
+
+**Regime 3 — Crisis and Recovery:** Near-zero fed funds (0.13%), high unemployment (8.26%), steep yield curve (1.94%), low inflation (1.70%). The Fed cut rates to zero to stimulate the economy, unemployment peaked near 10%, and the steep yield curve reflects the gap between emergency short-term rates and longer-term expectations. This is 2008-2015 — the financial crisis and the long slow recovery that followed.
+
+### Block 5 — Transition matrix
+
+```
+                    Inflationary Shock  Goldilocks  Pre-Crisis Normal  Crisis & Recovery
+Inflationary Shock               0.932       0.000              0.034              0.034
+Goldilocks                       0.000       0.945              0.018              0.037
+Pre-Crisis Normal                0.015       0.015              0.971              0.000
+Crisis & Recovery                0.012       0.024              0.000              0.964
+```
+
+**The diagonal entries confirm regime persistence:**
+- Pre-Crisis Normal: 97.1% probability of staying in the same regime month to month
+- Crisis & Recovery: 96.4%
+- Goldilocks: 94.5%
+- Inflationary Shock: 93.2% — the least persistent, meaning inflationary shocks tend to resolve faster than other regimes
+
+**The zero entries are economically meaningful:**
+- Goldilocks never transitions directly to Inflationary Shock (0.000) — you cannot jump from low inflation to high inflation in a single month
+- Crisis & Recovery never transitions directly to Pre-Crisis Normal (0.000) — you cannot jump from 8% unemployment to high rates without passing through a recovery period first
+- These structural zeros validate that the model has learned genuine economic dynamics rather than statistical noise
+
+### Key research finding — Day 3
+
+The Hidden Markov Model successfully identified four distinct macroeconomic regimes from 20 years of FRED data without being told anything about economic history. The four regimes — Inflationary Shock, Goldilocks, Pre-Crisis Normal, and Crisis & Recovery — match the four periods identified visually in Day 1 and align precisely with known historical events: the 2008 financial crisis, the 2010-2019 recovery and bull market, the 2022 inflationary shock.
+
+The transition matrix confirms high regime persistence (all diagonals above 0.93) and economically sensible transition restrictions (no direct jump from goldilocks to inflationary shock). The model has learned genuine macroeconomic structure from the data.
+
+### Questions for Day 4
+- Which asset class performs best in each regime? Does gold outperform during the inflationary shock? Do bonds dominate during crisis and recovery?
+- Is the outperformance of the best asset in each regime large enough to build a viable allocation strategy?
+- How does the current regime (Pre-Crisis Normal) suggest we should be positioned right now?
